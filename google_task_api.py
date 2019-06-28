@@ -18,10 +18,9 @@ SCOPES = ['https://www.googleapis.com/auth/tasks.readonly', 'https://www.googlea
 
 class GoogleTaskActions:
 
-    def getCredentials():
+    def getCredentials(self):
         """
-        Shows basic usage of the Tasks API.
-        Prints the title and ID of the first 10 task lists.
+        Gets credentials for the Google Tasks API.
         """
         creds = None
         # The file token.pickle stores the user's access and refresh tokens, and is
@@ -50,103 +49,117 @@ class GoogleTaskActions:
     # YP -> Google Tasks
     #####################
 
-    def createGoogleTaskCategory(title):
+    def createGoogleTaskCategory(self, title):
         """
         Create a Google Task category given a title.
         """
-        service = getCredentials()
+        service = self.getCredentials()
         taskList = {
             'title': title,
         }
-        task = service.tasklists().insert(body=taskList).execute()
-        CATEGORIES[title] = task['id']
-        # with open('category_data.json', 'a+') as cd:
-        #     json.dump(CATEGORIES, cd)
-        return task
+        category = service.tasklists().insert(body=taskList).execute()
+        # CATEGORIES[title] = task['id']
+        return category
 
 
-    def getGoogleTaskCategories():
+    def getGoogleTaskCategories(self):
         """
         Return all Google Task categories.
         """
         #NOTE: Make this only return the ones constructed by us.
 
-        service = getCredentials()
+        service = self.getCredentials()
         taskLists = service.tasklists().list().execute()
         return taskLists
 
 
-    def getGoogleTaskListById(taskListId):
+    def getGoogleTaskListById(self, taskListId):
         """
         Get task list by ID.
         """
-        service = getCredentials()
+        service = self.getCredentials()
         taskList = service.tasklists().get(tasklist=taskListId).execute()
         return taskList
 
 
-    def createGoogleTask(title, description, category, dueDate, estimatedDuration, actions):
+    def createGoogleTask(self, title, description, categoryName, dueDate, estimatedDuration, actions):
         """
         Creates the different tasks into the Google's Task manager, and create separate tasks for all the
         sub-actions of each task.
         """
-        service = getCredentials()
+        service = self.getCredentials()
+        
+        # To see whether or not the passed in category already exists.
+        categories = self.getGoogleTaskCategories()
+        found = False
+        for cat in categories['items']:
+            if cat['title'] == categoryName:
+                found = True
+                categoryFound = cat
+                break
+        if not found:
+            categoryId = self.createGoogleTaskCategory(categoryName)['id']
+        else:
+            categoryId = categoryFound['id']
         
         # Create the parent task
         parentTask = {
             'title': title,
-            'notes': description,
+            'notes': description + "\n\nEstimated Duration: " + str(estimatedDuration) + " minutes",
             'due': dueDate,
         }
-        # try:
+
         createdTasks = {}
-        task = service.tasks().insert(tasklist=category, body=parentTask).execute()
-        createdTasks['Parent'] = task
-        # except:
-        #     print("Error trying to create parent task!")
-        #     return {'success': False}
+        parent = service.tasks().insert(tasklist=categoryId, body=parentTask).execute()
+        createdTasks['Parent'] = parent
 
         # Create the children tasks from the actions
         childrenTasks = []
         for action in actions:
+            time = action.get('estimatedDuration')
+            if not time:
+                notes = action['description']
+            else:
+                notes = action['description'] + "\n\nEstimated Duration: " + str(action['estimatedDuration']) + " minutes"
+            childDueDate = action.get('dueDate')
             childTask = {
-                'id': action['id'],
+                # 'id': action['id'],
                 'title': action['title'],
-                'notes': action['description'],
-                'due': dueDate,
+                'notes': notes,
+                'due': childDueDate,
             }
-            task = service.tasks().insert(tasklist=category, body=childTask, parent=parentTask).execute()
+            task = service.tasks().insert(tasklist=categoryId, body=childTask, parent=parent['id']).execute()
             childrenTasks.append(task)
         createdTasks['Children'] = childrenTasks
         return createdTasks
 
 
-    def getGoogleTasksByCategory(taskListId):
+    def getGoogleTasksByCategory(self, taskListId):
         """
         Returns all tasks under a certain category.
         """
-        service = getCredentials()
+        service = self.getCredentials()
         tasks = service.tasks().list(tasklist=taskListId, showCompleted=True, showDeleted=True, showHidden=True).execute()
         return tasks
 
 
-    def getGoogleTaskByTaskListAndId(taskList, taskId):
+    def getGoogleTaskByTaskListAndId(self, taskList, taskId):
         """
         Returns a task object given a taskList and a taskId.
         """
-        service = getCredentials()
+        service = self.getCredentials()
         task = service.tasks().get(tasklist=taskList, task=taskId).execute()
         return task
 
 
     #TODO: Figure out how to be able to change categories and input categories.
 
-    def modifyGoogleTask(taskId, title=None, description=None, category=None, dueDate=None, estimatedDuration=None, actions=[]):
+    def modifyGoogleTask(self, taskId, title=None, description=None, category=None, dueDate=None, estimatedDuration=None, actions=[]):
         #(id=None, title, description=None, category='@default', dueDate, estimatedDuration, actions):
         """
         Modifies Google Task event from YP change.
         """
-        service = getCredentials()
+        service = self.getCredentials()
         task = service.tasks().get(tasklist=category, task=taskId).execute()
         if title:
             task['title'] = title
@@ -173,7 +186,7 @@ class GoogleTaskActions:
         """
         Marks a Google Task as complete.
         """
-        service = getCredentials()
+        service = self.getCredentials()
         task = service.tasks().get(tasklist=category, task=taskId).execute()
         task['status'] = 'completed'
         try:
@@ -188,7 +201,7 @@ class GoogleTaskActions:
         """
         Marks a Google Task as incomplete.
         """
-        service = getCredentials()
+        service = self.getCredentials()
         task = service.tasks().get(tasklist=category, task=taskId).execute()
         task['status'] = 'needsAction'
         try:
@@ -228,7 +241,6 @@ class GoogleTaskActions:
         differences = {}
         deletedItems = {}
         newItems = {}
-        # if not checkTasks:
         former = formerResponse['items']
         current = currentResponse['items']
 
@@ -257,11 +269,6 @@ class GoogleTaskActions:
 
         return newItems, differences, deletedItems
 
-    # def compareGoogleTaskResponses(formerResponse, currentResponse):
-    #     differences = {}
-    #     deletedItems = {}
-    #     newItems = {}
-
 
     def determineChangesFromTasks():
         """
@@ -272,9 +279,7 @@ class GoogleTaskActions:
         differences['newTasks'] = {}
         differences['changedTasks'] = {}
         differences['deletedTasks'] = {}
-        # differences['newCategories'] = {}
-        # differences['changedCategories'] = {}
-        # differences['deletedCategories'] = {}
+
         currentState = {}
         currentState['tasks'] = {}
 
@@ -283,7 +288,7 @@ class GoogleTaskActions:
                 formerState = json.load(json_file)
             except ValueError:
                 # This means the file is empty.
-                currentCategories = getGoogleTaskCategories()
+                currentCategories = self.getGoogleTaskCategories()
                 currentState['categories'] = currentCategories
                 differences['newCategories'] = currentCategories
                 for category in currentCategories['items']:
@@ -291,7 +296,6 @@ class GoogleTaskActions:
                     currentTask = getGoogleTasksByCategory(categoryId)
                     differences['newTasks'][categoryId] = currentTask
                     currentState['tasks'][categoryId] = currentTask
-                    # print(getGoogleTasksByCategory(categoryId))
                 json_string = json.dump(differences, json_file)
                 json_file.close()
                 return json_string
@@ -304,11 +308,8 @@ class GoogleTaskActions:
 
         # Finding difference between categories of former and current states.
         formerCategories = formerState['categories']
-        currentCategories = getGoogleTaskCategories()
+        currentCategories = self.getGoogleTaskCategories()
         differences['newCategories'], differences['changedCategories'], differences['deletedCategories'] = compareGoogleResponses(formerCategories, currentCategories)
-
-        # print(differences['deletedCategories'])
-        # return differences['deletedCategories']
 
         # # Take all the deleted categories, and remove all their respective tasks.
         # for categoryId in differences['deletedCategories']:
@@ -390,15 +391,38 @@ class GoogleTaskActions:
 
     # For testing purposes
 
-    def killAllTasks():
-        service = getCredentials()
-        categories = getGoogleTaskCategories()
+    def killAllTasks(self):
+        service = self.getCredentials()
+        categories = self.getGoogleTaskCategories()
         for category in categories['items']:
             if category['id'] == 'MTE1MDM3NzQyODQwOTY0NTg4MzU6MDow':
                 continue
             service.tasklists().delete(tasklist=category['id']).execute()
 
-
+g = GoogleTaskActions()
+actions = [
+    {
+        'id': 12345,
+        'title': 'I am child #1',
+        'description': 'Feed me please',
+        'dueDate': '2019-06-28T00:00:00.000Z',
+    },
+    {
+        'id': 1234567890,
+        'title': 'I am child #2',
+        'description': 'Feed me plz',
+        'dueDate': '2019-06-28T00:00:00.000Z',
+        'estimatedDuration': 30,
+    },
+    {
+        'id': 987654321,
+        'title': 'I am child #3',
+        'description': 'Feed me pls',
+        'dueDate': '2019-06-28T00:00:00.000Z',
+        'estimatedDuration': 10,
+    },
+]
+g.createGoogleTask("I am the parent.", "My children will follow.", "Family", "2019-06-27T00:00:00.000Z", 30, actions=actions)
 # # Testing
 # CATEGORIES = {}
 
